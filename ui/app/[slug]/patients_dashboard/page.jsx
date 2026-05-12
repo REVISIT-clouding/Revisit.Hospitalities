@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import {
   Bell, Plus, Menu, Zap, Loader2,
   AlertCircle,
+  Download,
 } from "lucide-react";
 import supabase from "@/lib/supabase";
 import { useHospital } from "@/lib/useHospital";
@@ -12,6 +13,8 @@ import PatientTable from "@/app/components/patients/PatientTable";
 import PatientDetail from "@/app/components/patients/PatientDetail";
 import PatientModal, { EMPTY_PATIENT } from "@/app/components/patients/PatientModal";
 import VisitModal, { EMPTY_VISIT } from "@/app/components/patients/VisitModal";
+import FullHistoryModal from "@/app/components/patients/FullHistoryModal";
+import ExportModal from "@/app/components/patients/ExportModal";
 
 const DEPARTMENTS = [
   "General Medicine", "Maternity", "Paediatrics", "Surgery", "Laboratory",
@@ -22,6 +25,7 @@ const DEPARTMENTS = [
 export default function PatientsPage() {
   const { slug } = useParams();
   const { hospital, user } = useHospital();
+  const [exportOpen, setExportOpen] = useState(false);
 
   /* ── State ── */
   const [patients,    setPatients]    = useState([]);
@@ -184,6 +188,15 @@ export default function PatientsPage() {
     setEditVisit(null);
   }
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyPatient, setHistoryPatient] = useState(null);
+
+  // Define the trigger function
+  const handleOpenFullHistory = (patient) => {
+    setHistoryPatient(patient);
+    setHistoryOpen(true);
+  };
+
   /* ── Guard ── */
   if (!hospital) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -250,6 +263,12 @@ export default function PatientsPage() {
               <Plus size={13} />
               <span className="hidden sm:inline">New Patient</span>
             </button>
+          <button
+  onClick={() => setExportOpen(true)}
+  className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-xl transition border border-slate-200 whitespace-nowrap">
+  <Download size={13} />
+  <span className="hidden sm:inline">Export</span>
+</button>
           </div>
         </header>
 
@@ -350,6 +369,7 @@ export default function PatientsPage() {
             onSelectPatient={setDetail}
           />
         </div>
+        
       </main>
 
       {/* ── PATIENT DETAIL DRAWER ── */}
@@ -379,6 +399,7 @@ export default function PatientsPage() {
             setEditVisit(v);
           }}
           onDeleteVisit={handleDeleteVisit}
+          onVisitFullVisitHistory={() => handleOpenFullHistory(detail)} // Trigger here
         />
       )}
 
@@ -409,6 +430,23 @@ export default function PatientsPage() {
           onClose={closeModals}
         />
       )}
+
+    {historyOpen && (
+  <FullHistoryModal 
+    patient={historyPatient}
+    hospital={hospital}   // ← add this
+    isOpen={historyOpen}
+    onClose={() => setHistoryOpen(false)}
+  />
+)}
+
+{exportOpen && (
+  <ExportModal
+    hospital={hospital}
+    isOpen={exportOpen}
+    onClose={() => setExportOpen(false)}
+  />
+)}
     </div>
   );
 }

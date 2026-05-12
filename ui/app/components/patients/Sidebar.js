@@ -26,16 +26,17 @@ export default function Sidebar({ hospital, user, onClose, activePage = "patient
   }
 
   const clinicalNav = [
-    { icon: <LayoutGrid size={14} />, label: "Dashboard",     page: "dashboard" },
-    { icon: <Users size={14} />,      label: "Patients",      page: "patients" },
+    { icon: <LayoutGrid size={14} />, label: "Dashboard",     page: "cp" },
+    { icon: <Users size={14} />,      label: "Patients",      page: "patients_dashboard" },
     { icon: <Calendar size={14} />,   label: "Appointments",  page: "appointments" },
-    { icon: <ClipboardList size={14} />, label: "Visit Records", page: "visits" },
+    { icon: <ClipboardList size={14} />, label: "Inventory", page: "inventory" },
     { icon: <FlaskConical size={14} />, label: "Laboratory",  page: "laboratory" },
     { icon: <Pill size={14} />,       label: "Pharmacy",      page: "pharmacy" },
   ];
 
   const adminNav = [
     { icon: <CreditCard size={14} />, label: "Billing",  page: "billing" },
+    { icon: <CreditCard size={14} />, label: "Quick Service Billing",  page: "QuickCharge" },
     { icon: <Settings size={14} />,   label: "Settings", page: "settings" },
   ];
 

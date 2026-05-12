@@ -85,6 +85,16 @@ export default function RegisterPage() {
     }
     setError("");
   };
+  
+  function next() {
+  const err = validate();
+  if (err) {
+    setError(err);
+    return;
+  }
+  setStep((s) => s + 1);
+  setError("");
+}
 
   function validate() {
     if (step === 1) {
@@ -102,17 +112,16 @@ export default function RegisterPage() {
     }
     return null;
   }
+async function handleSubmit() {
+  const err = validate();
+  if (err) {
+    setError(err);
+    return;
+  }
+  setSaving(true);
+  setError("");
 
-  async function handleSubmit() {
-    const err = validate();
-    if (err) {
-      setError(err);
-      return;
-    }
-    setSaving(true);
-    setError("");
-    console.log("SUBMITTING:", form); // ← add this
-
+  try {
     const res = await fetch("/api/auth/register-hospital", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -129,26 +138,23 @@ export default function RegisterPage() {
     });
 
     const data = await res.json();
+
     if (!res.ok) {
-      setError(data.error || "Registration failed. Try a different slug.");
+      // Handles the "Slug already taken" or other API errors
+      setError(data.error || "Registration failed. Please try again.");
       setSaving(false);
       return;
     }
 
+    // Success! 
     setSlug(data.slug);
     setSaving(false);
     setStep(3);
+  } catch (err) {
+    setError("Network error. Please check your connection.");
+    setSaving(false);
   }
-
-  function next() {
-    const err = validate();
-    if (err) {
-      setError(err);
-      return;
-    }
-    setError("");
-    setStep((s) => s + 1);
-  }
+}
 
   return (
     <div

@@ -15,6 +15,8 @@ import {
   RefreshCw,
   Pill,
   CreditCard,
+  File,
+  HistoryIcon,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/app/components/ui/Badge";
 
@@ -152,6 +154,7 @@ export default function PatientDetail({
   onDeletePatient,
   onEditVisit,
   onDeleteVisit,
+  onVisitFullVisitHistory
 }) {
   return (
     <>
@@ -215,6 +218,12 @@ export default function PatientDetail({
             className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-600 text-blue-700 hover:text-white text-xs font-bold py-2 rounded-lg transition"
           >
             <Printer size={12} /> Print
+          </button>
+          <button
+            onClick={onVisitFullVisitHistory}
+            className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-600 text-blue-700 hover:text-white text-xs font-bold py-2 rounded-lg transition"
+          >
+            <HistoryIcon size={12} /> history
           </button>
           <button
             onClick={() => onDeletePatient(patient.id)}

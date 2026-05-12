@@ -244,16 +244,27 @@ async function fetchHospital() {
       }
       patient = newPatient;
       // Send welcome new patient email
-     await fetch("/api/notify", {
+ // This assumes 'activeSchool' comes from your Auth context or a Supabase query
+await fetch("/api/notify", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    patient,
-    isExisting:    false,
-    complaint:     form.complaint,
-    hospitalName:  hospital.name,
-    hospitalPhone: hospital.phone,
-    hospitalEmail: hospital.email,
+    student: {
+      first_name: student.first_name,
+      last_name: student.last_name,
+      email: student.email,
+      student_id: student.student_id,
+    },
+    isResult: true, 
+    // Dynamically pull from your active school's state
+    data: {
+      termName: activeTerm.name, // e.g., "Third Term 2026"
+      average: result.total_average, 
+      grade: result.final_grade,
+      schoolName: activeSchool.name, 
+      schoolPhone: activeSchool.phone,
+      schoolLogo: activeSchool.logo_url, // Added for that high-end UI feel
+    },
   }),
 });
     }

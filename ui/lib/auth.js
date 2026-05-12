@@ -1,15 +1,15 @@
-import jwt from "jsonwebtoken";
+const { data, error: authError } = await supabase.auth.signInWithPassword({
+  email: form.email,
+  password: form.password,
+});
 
-const SECRET = process.env.JWT_SECRET;
+if (authError) { setError(authError.message); setLoading(false); return; }
 
-export function signToken(payload) {
-  return jwt.sign(payload, SECRET, { expiresIn: "8h" });
-}
+// Fetch slug for redirect
+const { data: userData } = await supabase
+  .from("users")
+  .select("hospitals(slug)")
+  .eq("id", data.user.id)
+  .single();
 
-export function verifyToken(token) {
-  try {
-    return jwt.verify(token, SECRET);
-  } catch {
-    return null;
-  }
-}
+router.push(`/${userData.hospitals.slug}/patients_dashboard`);

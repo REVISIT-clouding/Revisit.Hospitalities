@@ -1,0 +1,310 @@
+
+<h2 class="sr-only">HMS Audit Intelligence System — real-time audit log dashboard with severity classification, price-override detection, flagging, and regulatory compliance scoring</h2>
+<style>
+.ar{cursor:pointer;}.ar:hover td{background:var(--color-background-secondary)!important}
+.bd{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;letter-spacing:.4px;white-space:nowrap}
+.ch{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:500;letter-spacing:.5px;white-space:nowrap}
+.ib{background:none;border:.5px solid var(--color-border-secondary);cursor:pointer;padding:4px 10px;border-radius:6px;font-size:12px;color:var(--color-text-secondary)}
+.ib:hover{background:var(--color-background-secondary);color:var(--color-text-primary)}
+.ib.on{background:var(--color-background-warning);color:var(--color-text-warning);border-color:var(--color-border-warning)}
+.jv{font-family:var(--font-mono);font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-all}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px}
+</style>
+
+<div style="padding:4px 0 0">
+
+<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;padding-bottom:14px;border-bottom:.5px solid var(--color-border-tertiary)">
+  <div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <i class="ti ti-shield-check" aria-hidden="true" style="font-size:22px;color:var(--color-text-primary)"></i>
+      <span style="font-size:16px;font-weight:500;color:var(--color-text-primary)">Audit Intelligence System</span>
+      <span class="ch" style="background:var(--color-background-success);color:var(--color-text-success)"><span style="width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block"></span>LIVE</span>
+    </div>
+    <div style="font-size:11px;color:var(--color-text-secondary);margin-top:4px;display:flex;gap:10px">
+      <span><i class="ti ti-lock" aria-hidden="true" style="font-size:11px"></i> Append-only · tamper-evident</span>
+      <span><i class="ti ti-database" aria-hidden="true" style="font-size:11px"></i> 7 triggers active</span>
+      <span><i class="ti ti-certificate" aria-hidden="true" style="font-size:11px"></i> NDPR / HIPAA-equivalent pattern</span>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:10px;color:var(--color-text-tertiary)">Inspection ID</div>
+    <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary)">HMS-AUDIT-2026</div>
+  </div>
+</div>
+
+<div id="metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px"></div>
+
+<div style="display:grid;grid-template-columns:1fr 200px;gap:12px;margin-bottom:14px">
+  <div class="mc">
+    <div style="font-size:11px;color:var(--color-text-secondary);font-weight:500;margin-bottom:8px">Log activity — last 7 days</div>
+    <div style="position:relative;height:88px"><canvas id="actChart" role="img" aria-label="Stacked bar chart of daily audit log counts by severity over the last 7 days">Audit activity: daily breakdown by severity (critical, high, medium, low) for 7 days</canvas></div>
+  </div>
+  <div class="mc" id="coverage"></div>
+</div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+  <input id="srch" type="text" placeholder="Search table, user, ID, action…" style="flex:1;min-width:150px;font-size:12px" oninput="st.search=this.value;render()">
+  <select id="tf" style="font-size:12px" onchange="st.table=this.value;render()">
+    <option value="">All tables</option>
+    <option>patients</option><option>appointments</option><option>invoices</option>
+    <option>invoice_items</option><option>visits</option><option>inventory_items</option><option>inventory_transactions</option>
+  </select>
+  <select id="af" style="font-size:12px" onchange="st.action=this.value;render()">
+    <option value="">All actions</option>
+    <option>INSERT</option><option>UPDATE</option><option>DELETE</option><option>PRICE_OVERRIDE</option>
+  </select>
+  <select id="sf" style="font-size:12px" onchange="st.sev=this.value;render()">
+    <option value="">All severity</option>
+    <option>critical</option><option>high</option><option>medium</option><option>low</option>
+  </select>
+  <button class="ib" id="flgBtn" onclick="st.flagOnly=!st.flagOnly;this.classList.toggle('on');render()"><i class="ti ti-flag" aria-hidden="true"></i> Flagged</button>
+</div>
+
+<div id="logWrap" style="border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden"></div>
+
+<div style="margin-top:10px;display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-tertiary)">
+  <span><i class="ti ti-lock" aria-hidden="true" style="font-size:10px"></i> Records are append-only. Deletions are captured, never suppressed. All changes attributed to auth.uid().</span>
+  <span id="logCt"></span>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const U={
+  'uid-0001':{n:'Dr. Adaeze Okonkwo',r:'Physician',i:'AO',c:'#185FA5'},
+  'uid-0002':{n:'Nurse Chidi Eze',r:'Nursing',i:'CE',c:'#0F6E56'},
+  'uid-0003':{n:'Amaka Nwosu',r:'Billing',i:'AN',c:'#854F0B'},
+  'uid-0004':{n:'Ibrahim Musa',r:'Admin',i:'IM',c:'#533B89'},
+  'uid-0005':{n:'Dr. Emeka Obi',r:'Physician',i:'EO',c:'#185FA5'},
+  'uid-0006':{n:'Zainab Bello',r:'Pharmacist',i:'ZB',c:'#3B6D11'},
+  'SYS':{n:'System',r:'Automated',i:'SY',c:'#5F5E5A'},
+};
+const LOGS=[
+  {id:'log-001',table_name:'invoice_items',record_id:'3f7a9b2c-e812-4f1d-b223-9d4e5c8a7f01',action:'PRICE_OVERRIDE',old_data:{base_price:45000,service:'MRI Scan – Brain (Full)',currency:'NGN'},new_data:{override_price:28000,reason:'HMO discount – NHIS Tier A',authorized_by:'CEO approval'},changed_by:'uid-0003',created_at:'2026-05-12T09:47:23Z'},
+  {id:'log-002',table_name:'patients',record_id:'a9c3f812-0012-4b7d-91ca-2e8f4d3b5c09',action:'DELETE',old_data:{full_name:'Emmanuel Okoro',dob:'1978-03-14',blood_type:'O+',status:'discharged',ward:'General – B3'},new_data:null,changed_by:'uid-0004',created_at:'2026-05-12T09:31:05Z'},
+  {id:'log-003',table_name:'invoices',record_id:'b2e7d445-aa19-4c23-8f01-c3d9e7b2a811',action:'UPDATE',old_data:{total_amount:125000,status:'pending',payment_method:null},new_data:{total_amount:95000,status:'partial',payment_method:'card',discount_applied:30000},changed_by:'uid-0003',created_at:'2026-05-12T09:14:52Z'},
+  {id:'log-004',table_name:'invoice_items',record_id:'c1a8e223-f901-4d55-b3c7-7e2d1a9f4b03',action:'PRICE_OVERRIDE',old_data:{base_price:8500,service:'Full Blood Count + Malaria RDT'},new_data:{override_price:4000,reason:'Indigent patient waiver – approved by Dr. Obi'},changed_by:'uid-0003',created_at:'2026-05-12T08:55:17Z'},
+  {id:'log-005',table_name:'patients',record_id:'d4b1c790-2e38-4a11-bcf3-8d0f5e6c2a14',action:'INSERT',old_data:null,new_data:{full_name:'Fatima Aliyu',dob:'1995-11-22',gender:'F',blood_type:'A+',registration_no:'PAT-2026-0841',admitting_physician:'uid-0001'},changed_by:'uid-0002',created_at:'2026-05-12T08:30:00Z'},
+  {id:'log-006',table_name:'visits',record_id:'e5d2a801-3f49-4b22-cd04-9e1g6f7d3b25',action:'UPDATE',old_data:{diagnosis:'Malaria (uncomplicated)',status:'in-progress',ward:'Outpatient'},new_data:{diagnosis:'Severe malaria – cerebral',status:'admitted',ward:'ICU – C1',severity:'emergency'},changed_by:'uid-0001',created_at:'2026-05-12T08:12:44Z'},
+  {id:'log-007',table_name:'inventory_items',record_id:'f6e3b912-4g50-4c33-de15-0f2h7g8e4c36',action:'UPDATE',old_data:{item_name:'Artemether/Lumefantrine 80/480mg',stock_qty:240,reorder_level:50},new_data:{item_name:'Artemether/Lumefantrine 80/480mg',stock_qty:12,reorder_level:50,alert:'BELOW REORDER LEVEL'},changed_by:'SYS',created_at:'2026-05-11T23:01:00Z'},
+  {id:'log-008',table_name:'invoices',record_id:'g7f4c023-5h61-4d44-ef26-1g3i8h9f5d47',action:'UPDATE',old_data:{status:'sent',total_amount:310000,paid_amount:0},new_data:{status:'paid',total_amount:310000,paid_amount:310000,payment_ref:'TXN-20260511-0092'},changed_by:'uid-0003',created_at:'2026-05-11T17:45:33Z'},
+  {id:'log-009',table_name:'appointments',record_id:'h8g5d134-6i72-4e55-fg37-2h4j9i0g6e58',action:'DELETE',old_data:{patient:'Kingsley Nwachukwu',doctor:'uid-0005',date:'2026-05-15',time:'10:00',type:'Post-op review'},new_data:null,changed_by:'uid-0004',created_at:'2026-05-11T16:22:11Z'},
+  {id:'log-010',table_name:'inventory_transactions',record_id:'i9h6e245-7j83-4f66-gh48-3i5k0j1h7f69',action:'INSERT',old_data:null,new_data:{item:'Surgical Gloves (S) – box/100',qty_issued:20,issued_to:'Theatre 2',issued_by:'uid-0006',batch:'BT-2026-0304'},changed_by:'uid-0006',created_at:'2026-05-11T14:10:05Z'},
+  {id:'log-011',table_name:'invoice_items',record_id:'j0i7f356-8k94-4g77-hi59-4j6l1k2i8g70',action:'PRICE_OVERRIDE',old_data:{base_price:180000,service:'Emergency Caesarean Section'},new_data:{override_price:120000,reason:'Emergency waiver – life-threatening',authorized_by:'Medical Director'},changed_by:'uid-0001',created_at:'2026-05-11T02:34:18Z'},
+  {id:'log-012',table_name:'visits',record_id:'k1j8g467-9l05-4h88-ij60-5k7m2l3j9h81',action:'INSERT',old_data:null,new_data:{patient_id:'d4b1c790-2e38-4a11-bcf3-8d0f5e6c2a14',visit_type:'Emergency',presenting_complaint:'Convulsions + high fever',triage_level:'P1 – Immediate',attending:'uid-0001'},changed_by:'uid-0002',created_at:'2026-05-11T01:58:47Z'},
+  {id:'log-013',table_name:'patients',record_id:'l2k9h578-0m16-4i99-jk71-6l8n3m4k0i92',action:'UPDATE',old_data:{next_of_kin_phone:'08034512890',address:'12 Abubakar Rd, Garki'},new_data:{next_of_kin_phone:'08034512890',address:'12 Abubakar Rd, Garki',nok_name:'Mrs. Aisha Musa',nok_relationship:'Spouse'},changed_by:'uid-0004',created_at:'2026-05-10T15:30:22Z'},
+  {id:'log-014',table_name:'inventory_items',record_id:'m3l0i689-1n27-4j00-kl82-7m9o4n5l1j03',action:'DELETE',old_data:{item_name:'Expired Amoxicillin 500mg (2024 batch)',stock_qty:480,expiry:'2024-12-31',status:'quarantined'},new_data:null,changed_by:'uid-0006',created_at:'2026-05-10T11:05:44Z'},
+  {id:'log-015',table_name:'invoices',record_id:'n4m1j790-2o38-4k11-lm93-8n0p5o6m2k14',action:'INSERT',old_data:null,new_data:{patient_id:'l2k9h578-0m16-4i99-jk71-6l8n3m4k0i92',invoice_no:'INV-2026-1104',total_amount:52500,status:'pending',generated_by:'uid-0003'},changed_by:'uid-0003',created_at:'2026-05-10T09:45:00Z'},
+  {id:'log-016',table_name:'appointments',record_id:'o5n2k801-3p49-4l22-mn04-9o1q6p7n3l25',action:'INSERT',old_data:null,new_data:{patient:'Ngozi Adeyemi',doctor:'uid-0005',date:'2026-05-20',time:'14:00',type:'Antenatal – 32wks',room:'Clinic 3B'},changed_by:'uid-0002',created_at:'2026-05-10T08:00:00Z'},
+  {id:'log-017',table_name:'invoice_items',record_id:'p6o3l912-4q50-4m33-no15-0p2r7q8o4m36',action:'UPDATE',old_data:{qty:1,price_charged:35000,service:'Chest X-Ray (PA view)'},new_data:{qty:2,price_charged:70000,service:'Chest X-Ray (PA view)',note:'Repeat requested by radiologist'},changed_by:'uid-0001',created_at:'2026-05-09T16:20:10Z'},
+  {id:'log-018',table_name:'inventory_transactions',record_id:'q7p4m023-5r61-4n44-op26-1q3s8r9p5n47',action:'INSERT',old_data:null,new_data:{item:'Paracetamol IV 1g/100ml',qty_received:500,supplier:'PharmaNigeria Ltd',cost_per_unit:850,batch:'PN-2026-0211',expiry:'2028-06-30'},changed_by:'uid-0006',created_at:'2026-05-09T10:30:00Z'},
+  {id:'log-019',table_name:'patients',record_id:'r8q5n134-6s72-4o55-pq37-2r4t9s0q6o58',action:'INSERT',old_data:null,new_data:{full_name:'Chukwuemeka Ihejirika',dob:'1960-07-08',gender:'M',blood_type:'B-',comorbidities:['T2DM','Hypertension'],reg_no:'PAT-2026-0840'},changed_by:'uid-0002',created_at:'2026-05-08T11:15:00Z'},
+  {id:'log-020',table_name:'visits',record_id:'s9r6o245-7t83-4p66-qr48-3s5u0t1r7p69',action:'UPDATE',old_data:{status:'admitted',ward:'General – B3',duration_days:2},new_data:{status:'discharged',ward:'General – B3',duration_days:5,discharge_summary:'Recovered – full course of IV antibiotics'},changed_by:'uid-0001',created_at:'2026-05-08T09:00:00Z'},
+];
+
+function sev(action,tbl){
+  if(action==='PRICE_OVERRIDE')return'critical';
+  if(action==='DELETE')return'critical';
+  if(tbl==='invoices'||tbl==='invoice_items')return'high';
+  if(action==='UPDATE'&&(tbl==='patients'||tbl==='visits'))return'medium';
+  return'low';
+}
+const SEV={
+  critical:{bar:'#E24B4A',bg:'rgba(226,75,74,0.07)',bdg:'#FCEBEB',tx:'#A32D2D',lbl:'CRITICAL'},
+  high:{bar:'#BA7517',bg:'rgba(186,117,23,0.07)',bdg:'#FAEEDA',tx:'#854F0B',lbl:'HIGH'},
+  medium:{bar:'#378ADD',bg:'rgba(55,138,221,0.07)',bdg:'#E6F1FB',tx:'#185FA5',lbl:'MEDIUM'},
+  low:{bar:'#639922',bg:'rgba(99,153,34,0.07)',bdg:'#EAF3DE',tx:'#3B6D11',lbl:'LOW'},
+};
+const ACT={
+  INSERT:{bg:'#EAF3DE',tx:'#3B6D11',ic:'ti-circle-plus'},
+  UPDATE:{bg:'#FAEEDA',tx:'#854F0B',ic:'ti-pencil'},
+  DELETE:{bg:'#FCEBEB',tx:'#A32D2D',ic:'ti-trash'},
+  PRICE_OVERRIDE:{bg:'#FCEBEB',tx:'#A32D2D',ic:'ti-alert-triangle'},
+};
+
+let st={search:'',table:'',action:'',sev:'',flagOnly:false,expanded:null,flags:new Set()};
+
+function ts(iso){
+  const d=new Date(iso);
+  const now=new Date('2026-05-12T10:00:00Z');
+  const diff=Math.floor((now-d)/1000);
+  if(diff<60)return`${diff}s ago`;
+  if(diff<3600)return`${Math.floor(diff/60)}m ago`;
+  if(diff<86400)return`${Math.floor(diff/3600)}h ago`;
+  return`${Math.floor(diff/86400)}d ago`;
+}
+function fullTs(iso){return new Date(iso).toLocaleString('en-NG',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+function rid(id){return id.substring(0,8)+'…';}
+
+function diffKeys(old_data,new_data){
+  const ok=old_data?Object.keys(old_data):[];
+  const nk=new_data?Object.keys(new_data):[];
+  const all=[...new Set([...ok,...nk])];
+  return all.map(k=>{
+    const ov=old_data?.[k];
+    const nv=new_data?.[k];
+    let state='same';
+    if(ov===undefined)state='added';
+    else if(nv===undefined)state='removed';
+    else if(JSON.stringify(ov)!==JSON.stringify(nv))state='changed';
+    return{k,ov,nv,state};
+  });
+}
+
+function jsonLine(k,v,state){
+  let color='var(--color-text-secondary)';
+  if(state==='added')color='#3B6D11';
+  if(state==='removed')color='#A32D2D';
+  if(state==='changed')color='#854F0B';
+  return`<div style="color:${color};font-family:var(--font-mono);font-size:11px;line-height:1.7">  <span style="color:var(--color-text-tertiary)">"${k}"</span>: <span style="color:${color}">${v===null?'null':JSON.stringify(v)}</span></div>`;
+}
+
+function renderDetail(log){
+  const diffs=diffKeys(log.old_data,log.new_data);
+  const u=U[log.changed_by]||U['SYS'];
+  const s=SEV[sev(log.action,log.table_name)];
+  let oldHtml=log.old_data?diffs.map(d=>jsonLine(d.k,d.ov,d.state==='added'?'same':d.state)).join(''):'<div style="color:var(--color-text-tertiary);font-style:italic;font-size:12px;padding:8px 0">— No previous record (INSERT) —</div>';
+  let newHtml=log.new_data?diffs.map(d=>jsonLine(d.k,d.nv,d.state==='removed'?'same':d.state)).join(''):'<div style="color:var(--color-text-tertiary);font-style:italic;font-size:12px;padding:8px 0">— Record removed (DELETE) —</div>';
+  return`<div style="background:${s.bg};border-top:.5px solid var(--color-border-tertiary);padding:14px 16px 14px 20px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div style="background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px">
+        <div style="font-size:10px;font-weight:500;color:var(--color-text-tertiary);margin-bottom:6px;letter-spacing:.5px">BEFORE</div>
+        <div style="background:var(--color-background-secondary);border-radius:4px;padding:8px;min-height:48px">${oldHtml}</div>
+      </div>
+      <div style="background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px">
+        <div style="font-size:10px;font-weight:500;color:var(--color-text-tertiary);margin-bottom:6px;letter-spacing:.5px">AFTER</div>
+        <div style="background:var(--color-background-secondary);border-radius:4px;padding:8px;min-height:48px">${newHtml}</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:16px;font-size:11px;color:var(--color-text-secondary)">
+        <span><i class="ti ti-user" aria-hidden="true"></i> <b style="color:var(--color-text-primary)">${u.n}</b> · ${u.r}</span>
+        <span><i class="ti ti-fingerprint" aria-hidden="true"></i> <span style="font-family:var(--font-mono)">${log.record_id}</span></span>
+        <span><i class="ti ti-clock" aria-hidden="true"></i> ${fullTs(log.created_at)}</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="ib" style="font-size:11px" onclick="sendPrompt('Explain what this ${log.action} on ${log.table_name} means from a compliance perspective and if it requires investigation')"><i class="ti ti-analyze" aria-hidden="true"></i> Compliance review ↗</button>
+        <button class="ib" style="font-size:11px" onclick="document.getElementById('row-${log.id}').click()"><i class="ti ti-chevron-up" aria-hidden="true"></i> Close</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function filtered(){
+  return LOGS.filter(l=>{
+    const s2=sev(l.action,l.table_name);
+    if(st.table&&l.table_name!==st.table)return false;
+    if(st.action&&l.action!==st.action)return false;
+    if(st.sev&&s2!==st.sev)return false;
+    if(st.flagOnly&&!st.flags.has(l.id))return false;
+    if(st.search){
+      const q=st.search.toLowerCase();
+      if(![l.table_name,l.action,l.record_id,l.id,U[l.changed_by]?.n||''].some(v=>v.toLowerCase().includes(q)))return false;
+    }
+    return true;
+  });
+}
+
+function renderMetrics(){
+  const all=LOGS;
+  const crit=all.filter(l=>sev(l.action,l.table_name)==='critical').length;
+  const po=all.filter(l=>l.action==='PRICE_OVERRIDE').length;
+  const score=98.7;
+  const ring=2*Math.PI*22;
+  const dash=ring*(score/100);
+  document.getElementById('metrics').innerHTML=`
+    <div class="mc"><div style="font-size:11px;color:var(--color-text-secondary);font-weight:500;margin-bottom:4px">Total events</div><div style="font-size:26px;font-weight:500">${all.length}</div><div style="font-size:10px;color:var(--color-text-tertiary);margin-top:2px">All time</div></div>
+    <div class="mc" style="border-left:3px solid #E24B4A"><div style="font-size:11px;color:var(--color-text-secondary);font-weight:500;margin-bottom:4px">Critical events</div><div style="font-size:26px;font-weight:500;color:#A32D2D">${crit}</div><div style="font-size:10px;color:var(--color-text-tertiary);margin-top:2px">DELETE + PRICE_OVERRIDE</div></div>
+    <div class="mc" style="border-left:3px solid #BA7517"><div style="font-size:11px;color:var(--color-text-secondary);font-weight:500;margin-bottom:4px">Price overrides</div><div style="font-size:26px;font-weight:500;color:#854F0B">${po}</div><div style="font-size:10px;color:var(--color-text-tertiary);margin-top:2px">CEO-level review needed</div></div>
+    <div class="mc"><div style="font-size:11px;color:var(--color-text-secondary);font-weight:500;margin-bottom:4px">Compliance score</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <svg width="48" height="48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="none" stroke="var(--color-border-tertiary)" stroke-width="4"/><circle cx="24" cy="24" r="22" fill="none" stroke="#3B6D11" stroke-width="4" stroke-dasharray="${dash.toFixed(1)} ${ring.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 24 24)"/><text x="24" y="29" text-anchor="middle" font-size="11" font-weight="500" fill="var(--color-text-primary)">${score}%</text></svg>
+        <div><div style="font-size:18px;font-weight:500;color:#3B6D11">${score}%</div><div style="font-size:10px;color:var(--color-text-tertiary)">Audit coverage</div></div>
+      </div>
+    </div>`;
+}
+
+function renderCoverage(){
+  const tables=['patients','appointments','invoices','invoice_items','visits','inventory_items','inventory_transactions'];
+  document.getElementById('coverage').innerHTML=`<div style="font-size:11px;color:var(--color-text-secondary);font-weight:500;margin-bottom:8px">Table coverage</div>`+
+    tables.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;font-size:11px"><span style="color:var(--color-text-primary);font-family:var(--font-mono)">${t}</span><span style="color:#3B6D11"><i class="ti ti-circle-check" aria-hidden="true"></i></span></div>`).join('')+
+    `<div style="margin-top:8px;padding-top:6px;border-top:.5px solid var(--color-border-tertiary);font-size:10px;color:var(--color-text-tertiary)">7/7 triggers active</div>`;
+}
+
+function render(){
+  const rows=filtered();
+  document.getElementById('logCt').textContent=`Showing ${rows.length} of ${LOGS.length} events`;
+  if(!rows.length){
+    document.getElementById('logWrap').innerHTML=`<div style="padding:40px;text-align:center;color:var(--color-text-tertiary);font-size:13px"><i class="ti ti-database-off" aria-hidden="true" style="font-size:28px;display:block;margin-bottom:8px"></i>No audit records match the current filters</div>`;
+    return;
+  }
+  let html=`<table style="width:100%;border-collapse:collapse;table-layout:fixed">
+    <colgroup><col style="width:4px"><col style="width:90px"><col style="width:110px"><col style="width:110px"><col style="width:90px"><col style="width:140px"><col style="width:36px"><col style="width:32px"></colgroup>
+    <thead><tr style="border-bottom:.5px solid var(--color-border-tertiary)">
+      <th style="padding:0"></th>
+      <th style="padding:8px 10px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);text-align:left;letter-spacing:.5px">WHEN</th>
+      <th style="padding:8px 10px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);text-align:left;letter-spacing:.5px">ACTION</th>
+      <th style="padding:8px 10px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);text-align:left;letter-spacing:.5px">TABLE</th>
+      <th style="padding:8px 10px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);text-align:left;letter-spacing:.5px">RECORD</th>
+      <th style="padding:8px 10px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);text-align:left;letter-spacing:.5px">BY</th>
+      <th style="padding:8px 10px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);text-align:center;letter-spacing:.5px"><i class="ti ti-flag" aria-hidden="true"></i></th>
+      <th style="padding:8px 4px"></th>
+    </tr></thead><tbody>`;
+  rows.forEach(l=>{
+    const sv=sev(l.action,l.table_name);
+    const sc=SEV[sv];
+    const ac=ACT[l.action]||ACT['UPDATE'];
+    const u=U[l.changed_by]||U['SYS'];
+    const isExp=st.expanded===l.id;
+    const isFlg=st.flags.has(l.id);
+    const rowBg=isFlg?'rgba(186,117,23,0.06)':'transparent';
+    html+=`<tr class="ar" id="row-${l.id}" onclick="toggleExp('${l.id}')" style="background:${rowBg};border-bottom:.5px solid var(--color-border-tertiary)">
+      <td style="background:${sc.bar};padding:0;width:4px"></td>
+      <td style="padding:10px 10px;font-size:11px;color:var(--color-text-secondary)"><div title="${fullTs(l.created_at)}">${ts(l.created_at)}</div></td>
+      <td style="padding:10px 10px">
+        <span class="bd" style="background:${ac.bg};color:${ac.tx}"><i class="ti ${ac.ic}" aria-hidden="true" style="font-size:11px"></i>${l.action==='PRICE_OVERRIDE'?'OVERRIDE':l.action}</span>
+        ${sv==='critical'?`<span class="ch" style="background:${sc.bdg};color:${sc.tx};margin-left:4px;font-size:9px">${sc.lbl}</span>`:''}
+      </td>
+      <td style="padding:10px 10px"><span class="ch" style="background:var(--color-background-secondary);color:var(--color-text-secondary);font-family:var(--font-mono)">${l.table_name}</span></td>
+      <td style="padding:10px 10px;font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)">${rid(l.record_id)}</td>
+      <td style="padding:10px 10px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:26px;height:26px;border-radius:50%;background:${u.c}22;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:500;color:${u.c};border:.5px solid ${u.c}55;flex-shrink:0">${u.i}</div>
+          <div style="font-size:11px;overflow:hidden"><div style="color:var(--color-text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.n.split(' ').slice(-1)[0]}</div><div style="color:var(--color-text-tertiary);font-size:10px">${u.r}</div></div>
+        </div>
+      </td>
+      <td style="padding:10px 4px;text-align:center" onclick="event.stopPropagation();toggleFlag('${l.id}')">
+        <span style="font-size:16px;cursor:pointer;color:${isFlg?'#BA7517':'var(--color-border-secondary)'}" title="${isFlg?'Unflag':'Flag for review'}">${isFlg?'⚑':'⚐'}</span>
+      </td>
+      <td style="padding:10px 8px;text-align:center"><i class="ti ${isExp?'ti-chevron-up':'ti-chevron-down'}" aria-hidden="true" style="font-size:13px;color:var(--color-text-tertiary)"></i></td>
+    </tr>
+    ${isExp?`<tr><td colspan="8">${renderDetail(l)}</td></tr>`:''}`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('logWrap').innerHTML=html;
+}
+
+function toggleExp(id){st.expanded=st.expanded===id?null:id;render();}
+function toggleFlag(id){if(st.flags.has(id))st.flags.delete(id);else st.flags.add(id);render();}
+
+renderMetrics();
+renderCoverage();
+render();
+
+const days=['May 6','May 7','May 8','May 9','May 10','May 11','May 12'];
+const cData=[3,2,1,4,2,3,2];
+const hData=[2,4,1,5,3,4,1];
+const mData=[2,3,2,3,2,2,1];
+const lData=[1,3,2,3,2,2,0];
+const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+new Chart(document.getElementById('actChart'),{
+  type:'bar',
+  data:{labels:days,datasets:[
+    {label:'Critical',data:cData,backgroundColor:isDark?'#791F1F':'#F09595',stack:'a'},
+    {label:'High',data:hData,backgroundColor:isDark?'#633806':'#FAC775',stack:'a'},
+    {label:'Medium',data:mData,backgroundColor:isDark?'#0C447C':'#B5D4F4',stack:'a'},
+    {label:'Low',data:lData,backgroundColor:isDark?'#27500A':'#C0DD97',stack:'a'},
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>`${c.dataset.label}: ${c.raw}`}}},scales:{x:{ticks:{font:{size:9}},grid:{display:false}},y:{ticks:{font:{size:9},stepSize:2},grid:{color:isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.05)'}}},animation:{duration:600}}
+});
+</script>

@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Revisit.Hospitalisties(HMS)",
+  title: "Revisit.ClinicalOs(HMS)",
   description: "Improving Workflow of Hospitalities to save life",
 };
 
