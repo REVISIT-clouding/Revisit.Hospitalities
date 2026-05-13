@@ -1,162 +1,121 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  /api/staff/create.js  (or /api/staff/create/route.js for App Router)
+//  app/api/staff/create/route.js
 //
-//  WHY THIS EXISTS:
-//  Creating a new user in Supabase requires the "service role" (admin) key.
-//  That key has full database access, so it must NEVER be exposed in the browser.
-//  This API route runs on your server (Node.js), so the key stays private.
+//  What this does:
+//    1. Validates the submitted name / email / role
+//    2. Calls Supabase's "invite user" function — this sends the staff member
+//       a proper invite email with a link like:
+//         https://yourapp.com/auth/set-password?token=xxxxx
+//    3. Inserts a row in public.users with their name, role, hospital
 //
-//  HOW TO USE:
-//  Save this file at:
-//    app/api/staff/create/route.js      ← if you're using Next.js App Router
-//    pages/api/staff/create.js          ← if you're using Next.js Pages Router
+//  The staff member clicks the link → lands on /auth/set-password →
+//  types a password → they are now logged in.
 //
-//  Then add this to your .env.local file:
-//    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here   ← from Supabase dashboard
-//    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here        ← you likely already have this
-//
-//  ⚠️  NEVER put SUPABASE_SERVICE_ROLE_KEY in any file that starts with NEXT_PUBLIC_
-//      because those are exposed to the browser.
+//  .env.local must have:
+//    NEXT_PUBLIC_SUPABASE_URL=...
+//    SUPABASE_SERVICE_ROLE_KEY=...   ← from Supabase dashboard → Settings → API
+//    NEXT_PUBLIC_APP_URL=https://yourapp.com   ← where the invite link points to
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createClient } from "@supabase/supabase-js";
 
-// This is the all-powerful admin client — only used server-side
+// Admin client — only safe to use server-side, never in the browser
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY   // ← NOT the anon key, NOT NEXT_PUBLIC_
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-// ─────────────────────────────────────────────────────────────
-//  App Router version  (use this if your folder is /app)
-// ─────────────────────────────────────────────────────────────
 
 export async function POST(request) {
   try {
-    const { name, email, role } = await request.json();
+    const { name, email, role, hospital_id } = await request.json();
 
-    // ── 1. Basic server-side validation ───────────────────────
-    if (!name?.trim()) {
-      return Response.json({ error: "Name is required." }, { status: 400 });
-    }
-    if (!email?.trim() || !/\S+@\S+\.\S+/.test(email)) {
-      return Response.json({ error: "A valid email address is required." }, { status: 400 });
-    }
+    // ── Validate inputs ──────────────────────────────────────
+    if (!name?.trim())
+      return Response.json({ error: "Please provide the staff member's full name." }, { status: 400 });
 
-    const validRoles = ["admin","doctor","nurse","billing","pharmacist","staff"];
-    if (!validRoles.includes(role)) {
+    if (!email?.trim() || !/\S+@\S+\.\S+/.test(email))
+      return Response.json({ error: "Please provide a valid email address." }, { status: 400 });
+
+    const validRoles = ["admin", "doctor", "nurse", "billing", "pharmacist", "staff"];
+    if (!validRoles.includes(role))
       return Response.json({ error: "Invalid role selected." }, { status: 400 });
-    }
 
-    // ── 2. Check if this email is already registered ───────────
+    // ── Check for duplicate email ────────────────────────────
     const { data: existing } = await supabaseAdmin
       .from("users")
       .select("id")
-      .eq("email", email)
+      .eq("email", email.toLowerCase().trim())
       .maybeSingle();
 
-    if (existing) {
+    if (existing)
       return Response.json({ error: "A staff member with this email already exists." }, { status: 400 });
+
+    // ── Send the invite email ────────────────────────────────
+    //
+    //  inviteUserByEmail sends an email that looks like:
+    //    "You've been invited to join [Your App]. Click here to accept."
+    //
+    //  The link in that email redirects to:
+    //    NEXT_PUBLIC_APP_URL/auth/set-password
+    //
+    //  On that page the staff member sets their password.
+    //  The name and role are stored in user_metadata so the
+    //  set-password page can greet them by name.
+    //
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email.toLowerCase().trim(),
+      {
+        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/set-password`,
+        data: {
+          // These land in auth.users → raw_user_meta_data
+          // and are accessible on the set-password page
+          name:        name.trim(),
+          role,
+          hospital_id: hospital_id ?? null,
+        },
+      }
+    );
+
+    if (inviteError) {
+      console.error("[Invite staff] Auth error:", inviteError);
+      // "User already registered" means they have an auth account but maybe no public.users row
+      if (inviteError.message?.includes("already registered")) {
+        return Response.json({ error: "This email address already has an account." }, { status: 400 });
+      }
+      return Response.json({ error: inviteError.message }, { status: 400 });
     }
 
-    // ── 3. Create a Supabase Auth account for this person ──────
-    //       They will receive a "Set your password" email automatically.
-    //       The email contains a magic link — they click it, set a password, done.
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: email.toLowerCase().trim(),
-      email_confirm: false,   // Sends a confirmation / invite email
-      user_metadata: {
-        name: name.trim(),
-        role,
-      },
-    });
+    const userId = inviteData.user.id;
 
-    if (authError) {
-      console.error("[Add Staff] Auth error:", authError);
-      return Response.json({ error: authError.message }, { status: 400 });
-    }
-
-    const userId = authData.user.id;
-
-    // ── 4. Insert into your public.users table ─────────────────
-    //       This is separate from auth.users — it's YOUR table with name, role, etc.
+    // ── Insert into public.users ─────────────────────────────
+    //
+    //  We do this now (not after they set their password) so the
+    //  staff member appears in the admin's staff list immediately,
+    //  shown with a "Invite pending" status.
+    //
     const { data: newUser, error: dbError } = await supabaseAdmin
       .from("users")
       .insert({
-        id:    userId,           // Must match the auth.users id (that's the FK you defined)
-        name:  name.trim(),
-        email: email.toLowerCase().trim(),
+        id:          userId,
+        name:        name.trim(),
+        email:       email.toLowerCase().trim(),
         role,
-        // hospital_id — add this if you want to scope to a specific hospital
-        // hospital_id: your_hospital_id,
+        hospital_id: hospital_id ?? null,
       })
       .select("id, name, email, role, created_at")
       .single();
 
     if (dbError) {
-      // If the DB insert failed, clean up the auth user to avoid orphans
-      console.error("[Add Staff] DB error:", dbError);
+      console.error("[Invite staff] DB insert error:", dbError);
+      // Clean up the auth invite so we don't leave orphaned accounts
       await supabaseAdmin.auth.admin.deleteUser(userId);
       return Response.json({ error: "Could not save staff details. Please try again." }, { status: 500 });
     }
 
-    // ── 5. Return the new staff member's details to the front end
     return Response.json({ user: newUser }, { status: 200 });
 
   } catch (err) {
-    console.error("[Add Staff] Unexpected error:", err);
+    console.error("[Invite staff] Unexpected error:", err);
     return Response.json({ error: "An unexpected error occurred." }, { status: 500 });
   }
 }
-
-
-// ─────────────────────────────────────────────────────────────
-//  Pages Router version  (use this instead if your folder is /pages)
-//  Uncomment the code below and delete the App Router version above.
-// ─────────────────────────────────────────────────────────────
-
-/*
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  try {
-    const { name, email, role } = req.body;
-
-    if (!name?.trim()) return res.status(400).json({ error: "Name is required." });
-    if (!email?.trim() || !/\S+@\S+\.\S+/.test(email)) return res.status(400).json({ error: "A valid email address is required." });
-
-    const validRoles = ["admin","doctor","nurse","billing","pharmacist","staff"];
-    if (!validRoles.includes(role)) return res.status(400).json({ error: "Invalid role selected." });
-
-    const { data: existing } = await supabaseAdmin.from("users").select("id").eq("email", email).maybeSingle();
-    if (existing) return res.status(400).json({ error: "A staff member with this email already exists." });
-
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: email.toLowerCase().trim(),
-      email_confirm: false,
-      user_metadata: { name: name.trim(), role },
-    });
-
-    if (authError) return res.status(400).json({ error: authError.message });
-
-    const userId = authData.user.id;
-
-    const { data: newUser, error: dbError } = await supabaseAdmin
-      .from("users")
-      .insert({ id: userId, name: name.trim(), email: email.toLowerCase().trim(), role })
-      .select("id, name, email, role, created_at")
-      .single();
-
-    if (dbError) {
-      await supabaseAdmin.auth.admin.deleteUser(userId);
-      return res.status(500).json({ error: "Could not save staff details." });
-    }
-
-    return res.status(200).json({ user: newUser });
-  } catch (err) {
-    return res.status(500).json({ error: "An unexpected error occurred." });
-  }
-}
-*/

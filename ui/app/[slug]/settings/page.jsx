@@ -1,6 +1,5 @@
 "use client";
 
-
 import { useEffect, useState, useCallback } from "react";
 import supabase from "@/lib/supabase";
 
@@ -42,7 +41,7 @@ const inputStyle = {
 //  "Add Staff" modal — collects name, email, role, sends invite
 // ─────────────────────────────────────────────────────────────
 
-function AddStaffModal({ onClose, onSuccess }) {
+function AddStaffModal({ hospitalId, onClose, onSuccess }) {
   const [form, setForm]     = useState({ name: "", email: "", role: "staff" });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState("");
@@ -50,7 +49,6 @@ function AddStaffModal({ onClose, onSuccess }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   async function handleSubmit() {
-    // Basic validation
     if (!form.name.trim())  return setError("Please enter the staff member's full name.");
     if (!form.email.trim()) return setError("Please enter an email address.");
     if (!/\S+@\S+\.\S+/.test(form.email)) return setError("That email address doesn't look right.");
@@ -59,13 +57,11 @@ function AddStaffModal({ onClose, onSuccess }) {
     setError("");
 
     try {
-      // ── Call our API route which uses the Supabase admin key ─
-      // The admin key must NEVER be used client-side.
-      // See /api/staff/create.js for the server-side code.
       const res = await fetch("/api/staff/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        // ↓ pass hospital_id so the API route can assign the new staff to the right hospital
+        body: JSON.stringify({ ...form, hospital_id: hospitalId }),
       });
 
       const json = await res.json();
@@ -76,7 +72,7 @@ function AddStaffModal({ onClose, onSuccess }) {
         return;
       }
 
-      onSuccess(json.user);   // Pass new user back to the list
+      onSuccess(json.user);
       onClose();
     } catch {
       setError("Could not connect to the server. Please try again.");
@@ -84,7 +80,6 @@ function AddStaffModal({ onClose, onSuccess }) {
     }
   }
 
-  // Close modal when clicking the dark overlay behind it
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget) onClose();
   };
@@ -96,7 +91,6 @@ function AddStaffModal({ onClose, onSuccess }) {
     >
       <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 480, boxShadow: "0 20px 60px rgba(0,0,0,0.15)", overflow: "hidden" }}>
 
-        {/* Modal header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: "0.5px solid #f1f5f9" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
@@ -109,10 +103,8 @@ function AddStaffModal({ onClose, onSuccess }) {
           </div>
         </div>
 
-        {/* Form fields */}
         <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* Full name */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: "#475569", display: "block", marginBottom: 6 }}>
               Full name <span style={{ color: "#ef4444" }}>*</span>
@@ -126,7 +118,6 @@ function AddStaffModal({ onClose, onSuccess }) {
             />
           </div>
 
-          {/* Email address */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: "#475569", display: "block", marginBottom: 6 }}>
               Work email address <span style={{ color: "#ef4444" }}>*</span>
@@ -140,7 +131,6 @@ function AddStaffModal({ onClose, onSuccess }) {
             />
           </div>
 
-          {/* Role selector */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: "#475569", display: "block", marginBottom: 6 }}>
               Role / Department <span style={{ color: "#ef4444" }}>*</span>
@@ -168,7 +158,6 @@ function AddStaffModal({ onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Error message */}
           {error && (
             <div style={{ background: "#fff5f5", border: "0.5px solid #fca5a5", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#b91c1c" }}>
               ⚠️ {error}
@@ -176,7 +165,6 @@ function AddStaffModal({ onClose, onSuccess }) {
           )}
         </div>
 
-        {/* Footer buttons */}
         <div style={{ padding: "0 24px 20px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{ padding: "9px 18px", fontSize: 13, borderRadius: 8, border: "0.5px solid #e2e8f0", background: "#fff", color: "#475569", cursor: "pointer" }}>
             Cancel
@@ -254,8 +242,6 @@ function ConfirmRemoveModal({ staff, onClose, onConfirm }) {
 
   async function handleConfirm() {
     setRemoving(true);
-    // Delete from public.users — Supabase cascade will remove auth.users too
-    // (because of the FK constraint with ON DELETE CASCADE you defined)
     await onConfirm(staff.id);
     setRemoving(false);
     onClose();
@@ -289,73 +275,66 @@ function ConfirmRemoveModal({ staff, onClose, onConfirm }) {
 
 // ─────────────────────────────────────────────────────────────
 //  Staff tab — the main staff management section
+//
+//  FIX: now receives `currentUser` so it can filter by
+//  hospital_id — that's why the list was empty before.
+//  Without the filter, Supabase RLS silently returns 0 rows.
 // ─────────────────────────────────────────────────────────────
 
-function StaffTab() {
-  const [staff,    setStaff]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [search,   setSearch]   = useState("");
-  const [showAdd,  setShowAdd]  = useState(false);
-  const [editingId, setEditingId] = useState(null);
+function StaffTab({ currentUser }) {
+  const [staff,      setStaff]      = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [search,     setSearch]     = useState("");
+  const [showAdd,    setShowAdd]    = useState(false);
+  const [editingId,  setEditingId]  = useState(null);
   const [removingId, setRemovingId] = useState(null);
 
-  // Fetch all staff from public.users
   const fetchStaff = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("users")
       .select("id, name, email, role, created_at")
+      // ↓ THE FIX: filter to this admin's hospital only
+      //   Without this, RLS blocks the query and returns nothing
+      .eq("hospital_id", currentUser.hospital_id)
       .order("created_at", { ascending: false });
-    if (data) setStaff(data);
+
+    if (error) console.error("Could not load staff:", error.message);
+    if (data)  setStaff(data);
     setLoading(false);
-  }, []);
+  }, [currentUser.hospital_id]);
 
   useEffect(() => { fetchStaff(); }, [fetchStaff]);
 
-  // Filter by search term
   const visible = staff.filter(s => {
     if (!search) return true;
     const q = search.toLowerCase();
     return [s.name, s.email, s.role].join(" ").toLowerCase().includes(q);
   });
 
-  // Called when new staff is added via the modal
-  const handleAdded = (newUser) => {
-    setStaff(prev => [newUser, ...prev]);
-  };
-
-  // Called when a role is updated
-  const handleRoleUpdated = (updated) => {
-    setStaff(prev => prev.map(s => s.id === updated.id ? updated : s));
-  };
-
-  // Remove a staff member
-  const handleRemove = async (id) => {
+  const handleAdded       = (newUser)  => setStaff(prev => [newUser, ...prev]);
+  const handleRoleUpdated = (updated)  => setStaff(prev => prev.map(s => s.id === updated.id ? updated : s));
+  const handleRemove      = async (id) => {
     await supabase.from("users").delete().eq("id", id);
     setStaff(prev => prev.filter(s => s.id !== id));
   };
 
   const editingStaff  = staff.find(s => s.id === editingId);
   const removingStaff = staff.find(s => s.id === removingId);
-
   const inputS = { ...inputStyle, fontSize: 12, padding: "7px 12px 7px 34px" };
 
   return (
     <div>
-      {/* Add modal */}
-      {showAdd && <AddStaffModal onClose={() => setShowAdd(false)} onSuccess={handleAdded} />}
-
-      {/* Edit role modal */}
-      {editingStaff && (
-        <EditRoleModal staff={editingStaff} onClose={() => setEditingId(null)} onSave={handleRoleUpdated} />
+      {showAdd && (
+        <AddStaffModal
+          hospitalId={currentUser.hospital_id}
+          onClose={() => setShowAdd(false)}
+          onSuccess={handleAdded}
+        />
       )}
+      {editingStaff  && <EditRoleModal staff={editingStaff}  onClose={() => setEditingId(null)}  onSave={handleRoleUpdated} />}
+      {removingStaff && <ConfirmRemoveModal staff={removingStaff} onClose={() => setRemovingId(null)} onConfirm={handleRemove} />}
 
-      {/* Confirm remove modal */}
-      {removingStaff && (
-        <ConfirmRemoveModal staff={removingStaff} onClose={() => setRemovingId(null)} onConfirm={handleRemove} />
-      )}
-
-      {/* Section header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>Staff members</div>
@@ -371,13 +350,11 @@ function StaffTab() {
         </button>
       </div>
 
-      {/* Search */}
       <div style={{ position: "relative", marginBottom: 14, maxWidth: 340 }}>
         <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#94a3b8" }}>🔍</span>
         <input type="text" placeholder="Search by name, email, or role…" value={search} onChange={e => setSearch(e.target.value)} style={inputS} />
       </div>
 
-      {/* Staff table */}
       <div style={{ border: "0.5px solid #e2e8f0", borderRadius: 12, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -414,52 +391,55 @@ function StaffTab() {
               </tr>
             ) : (
               visible.map(person => {
-                const color    = avatarColor(person.name);
-                const initials = person.name.split(" ").map(p => p[0]).join("").substring(0, 2).toUpperCase();
-                const roleCfg  = ROLE_COLOURS[person.role] || ROLE_COLOURS.staff;
+                const color     = avatarColor(person.name);
+                const initials  = person.name.split(" ").map(p => p[0]).join("").substring(0, 2).toUpperCase();
+                const roleCfg   = ROLE_COLOURS[person.role] || ROLE_COLOURS.staff;
                 const roleLabel = ROLES.find(r => r.value === person.role)?.label || person.role;
-                const joined   = new Date(person.created_at).toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" });
+                const joined    = new Date(person.created_at).toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" });
+                const isSelf    = person.id === currentUser.id;
 
                 return (
                   <tr key={person.id} style={{ borderBottom: "0.5px solid #f1f5f9" }}
                     onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
-                    {/* Name + avatar */}
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ width: 34, height: 34, borderRadius: "50%", background: color + "22", border: `0.5px solid ${color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color, flexShrink: 0 }}>
                           {initials}
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: "#1e293b" }}>{person.name}</div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "#1e293b", display: "flex", alignItems: "center", gap: 6 }}>
+                            {person.name}
+                            {isSelf && (
+                              <span style={{ fontSize: 10, background: "#eff6ff", color: "#2563eb", padding: "1px 6px", borderRadius: 10, fontWeight: 500 }}>You</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </td>
-
-                    {/* Email */}
                     <td style={{ padding: "12px 16px", fontSize: 13, color: "#64748b" }}>{person.email}</td>
-
-                    {/* Role badge */}
                     <td style={{ padding: "12px 16px" }}>
                       <span style={{ padding: "3px 10px", borderRadius: 20, background: roleCfg.bg, color: roleCfg.color, fontSize: 11, fontWeight: 500 }}>
                         {roleLabel}
                       </span>
                     </td>
-
-                    {/* Date joined */}
                     <td style={{ padding: "12px 16px", fontSize: 12, color: "#94a3b8" }}>{joined}</td>
-
-                    {/* Action buttons */}
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button
-                          onClick={() => setEditingId(person.id)}
-                          style={{ padding: "5px 12px", fontSize: 11, borderRadius: 6, border: "0.5px solid #e2e8f0", background: "#fff", color: "#475569", cursor: "pointer" }}
+                          onClick={() => !isSelf && setEditingId(person.id)}
+                          disabled={isSelf}
+                          title={isSelf ? "You cannot change your own role" : undefined}
+                          style={{ padding: "5px 12px", fontSize: 11, borderRadius: 6, border: "0.5px solid #e2e8f0", background: "#fff", color: isSelf ? "#cbd5e1" : "#475569", cursor: isSelf ? "not-allowed" : "pointer" }}
                         >
                           ✏️ Edit role
                         </button>
                         <button
-                          onClick={() => setRemovingId(person.id)}
-                          style={{ padding: "5px 12px", fontSize: 11, borderRadius: 6, border: "0.5px solid #fca5a5", background: "#fff5f5", color: "#b91c1c", cursor: "pointer" }}
+                          onClick={() => !isSelf && setRemovingId(person.id)}
+                          disabled={isSelf}
+                          title={isSelf ? "You cannot remove yourself" : undefined}
+                          style={{ padding: "5px 12px", fontSize: 11, borderRadius: 6, border: isSelf ? "0.5px solid #f1f5f9" : "0.5px solid #fca5a5", background: isSelf ? "#f8fafc" : "#fff5f5", color: isSelf ? "#cbd5e1" : "#b91c1c", cursor: isSelf ? "not-allowed" : "pointer" }}
                         >
                           Remove
                         </button>
@@ -485,7 +465,6 @@ function HospitalTab() {
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
 
-  // Load hospital info from the hospitals table
   useEffect(() => {
     supabase.from("hospitals").select("*").limit(1).single().then(({ data }) => {
       if (data) setForm({ name: data.name || "", address: data.address || "", phone: data.phone || "", email: data.email || "", rc_number: data.rc_number || "" });
@@ -502,11 +481,11 @@ function HospitalTab() {
   }
 
   const fields = [
-    { key: "name",      label: "Hospital name",          placeholder: "e.g. Lagos General Hospital" },
-    { key: "address",   label: "Full address",            placeholder: "e.g. 12 Broad St, Lagos Island" },
-    { key: "phone",     label: "Main phone number",       placeholder: "e.g. +234 801 234 5678" },
-    { key: "email",     label: "Main contact email",      placeholder: "e.g. info@hospital.ng" },
-    { key: "rc_number", label: "CAC / RC Number",         placeholder: "e.g. RC 123456" },
+    { key: "name",      label: "Hospital name",     placeholder: "e.g. Lagos General Hospital" },
+    { key: "address",   label: "Full address",       placeholder: "e.g. 12 Broad St, Lagos Island" },
+    { key: "phone",     label: "Main phone number",  placeholder: "e.g. +234 801 234 5678" },
+    { key: "email",     label: "Main contact email", placeholder: "e.g. info@hospital.ng" },
+    { key: "rc_number", label: "CAC / RC Number",    placeholder: "e.g. RC 123456" },
   ];
 
   return (
@@ -586,7 +565,6 @@ function AccountTab() {
       <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>My account</div>
       <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 24 }}>Update your display name or change your password.</div>
 
-      {/* Display name */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "#1e293b", marginBottom: 12 }}>Display name</div>
         <div>
@@ -602,11 +580,10 @@ function AccountTab() {
         </button>
       </div>
 
-      {/* Password */}
       <div style={{ paddingTop: 20, borderTop: "0.5px solid #e2e8f0" }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "#1e293b", marginBottom: 12 }}>Change password</div>
         {[
-          { key: "newPwd",  label: "New password",      placeholder: "Min. 8 characters" },
+          { key: "newPwd",  label: "New password",         placeholder: "Min. 8 characters" },
           { key: "confirm", label: "Confirm new password", placeholder: "Type it again" },
         ].map(({ key, label, placeholder }) => (
           <div key={key} style={{ marginBottom: 12 }}>
@@ -619,7 +596,6 @@ function AccountTab() {
         </button>
       </div>
 
-      {/* Message */}
       {message && (
         <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 8, background: message.includes("not") || message.includes("least") ? "#fff5f5" : "#f0fdf4", border: `0.5px solid ${message.includes("not") || message.includes("least") ? "#fca5a5" : "#bbf7d0"}`, fontSize: 12, color: message.includes("not") || message.includes("least") ? "#b91c1c" : "#16a34a" }}>
           {message}
@@ -631,16 +607,130 @@ function AccountTab() {
 
 // ─────────────────────────────────────────────────────────────
 //  Main Settings Page
+//
+//  CHANGE 1 — Admin gate:
+//    On mount, fetch the logged-in user's role from public.users.
+//    If they are not "admin", show an access-denied screen instead.
+//
+//  CHANGE 2 — Pass currentUser down to StaffTab:
+//    StaffTab now needs hospital_id to filter staff correctly.
 // ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "staff",    label: "👥 Staff",            component: StaffTab    },
-  { id: "hospital", label: "🏥 Hospital info",    component: HospitalTab },
-  { id: "account",  label: "👤 My account",       component: AccountTab  },
+  { id: "staff",    label: "👥 Staff",         component: StaffTab    },
+  { id: "hospital", label: "🏥 Hospital info", component: HospitalTab },
+  { id: "account",  label: "👤 My account",    component: AccountTab  },
 ];
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("staff");
+  const [activeTab,   setActiveTab]   = useState("staff");
+  const [currentUser, setCurrentUser] = useState(null);  // null = still loading
+  const [authChecked, setAuthChecked] = useState(false); // true once we know the role
+
+  // ── Check who is logged in and whether they are an admin ────
+  useEffect(() => {
+    async function checkRole() {
+      // Step 1 — is anyone logged in at all?
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        setCurrentUser({ _debug: "No auth session", authError: authError?.message });
+        setAuthChecked(true);
+        return;
+      }
+
+      // Step 2 — fetch their row from public.users
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("id, name, role, hospital_id")
+        .eq("id", user.id)
+        .single();
+
+      if (profileError || !profile) {
+        // Row not found OR RLS blocked the read.
+        // Store debug info so we can show it on screen.
+        setCurrentUser({
+          _debug: "Profile query failed",
+          _authId: user.id,
+          _authEmail: user.email,
+          _profileError: profileError?.message,
+          _profileCode: profileError?.code,
+        });
+      } else {
+        setCurrentUser(profile);
+      }
+
+      setAuthChecked(true);
+    }
+    checkRole();
+  }, []);
+
+  // ── Still checking ───────────────────────────────────────────
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ fontSize: 13, color: "#94a3b8" }}>Loading…</div>
+      </div>
+    );
+  }
+
+  // ── Debug screen — profile query failed ─────────────────────
+  // This replaces the silent 🔒 screen with an explanation.
+  // Once you fix the underlying issue, this block will never show.
+  if (currentUser?._debug) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif", padding: 24 }}>
+        <div style={{ background: "#fff", border: "0.5px solid #fca5a5", borderRadius: 16, padding: 28, maxWidth: 520, width: "100%" }}>
+          <div style={{ fontSize: 24, marginBottom: 12 }}>🔍 Debug info</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", marginBottom: 16 }}>
+            The settings page couldn't read your profile. Here's why:
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {Object.entries(currentUser).filter(([k]) => k.startsWith("_")).map(([k, v]) => (
+              <div key={k} style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 2 }}>{k.replace("_", "")}</div>
+                <div style={{ fontSize: 13, fontFamily: "monospace", color: "#1e293b", wordBreak: "break-all" }}>{v || "—"}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 20, fontSize: 13, color: "#64748b", lineHeight: 1.7 }}>
+            <strong>Most likely fix:</strong> your Supabase RLS policy on <code style={{ background: "#f1f5f9", padding: "1px 5px", borderRadius: 4 }}>public.users</code> doesn't allow users to read their own row.
+            Add this policy in your Supabase dashboard → Authentication → Policies:
+          </div>
+          <pre style={{ marginTop: 12, background: "#1e293b", color: "#a3e635", padding: "12px 14px", borderRadius: 8, fontSize: 12, overflowX: "auto", lineHeight: 1.7 }}>
+{`-- Allow users to read their own row
+CREATE POLICY "Users can read own profile"
+ON public.users
+FOR SELECT
+USING (auth.uid() = id);`}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Not an admin — show access denied ───────────────────────
+  // role check is case-insensitive so "Admin" and "ADMIN" also work
+  if (!currentUser || currentUser.role?.toLowerCase() !== "admin") {
+    return (
+      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: "#1e293b", marginBottom: 8 }}>Access restricted</div>
+          <div style={{ fontSize: 14, color: "#64748b", marginBottom: 16 }}>Only administrators can access this page.</div>
+          {/* Shows the actual role stored in the DB so you can spot a typo */}
+          {currentUser?.role && (
+            <div style={{ fontSize: 12, color: "#94a3b8" }}>
+              Your current role: <code style={{ background: "#f1f5f9", padding: "1px 6px", borderRadius: 4 }}>{currentUser.role}</code>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render normally for admins ───────────────────────────────
+  // StaffTab gets currentUser so it can filter by hospital_id
   const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || StaffTab;
 
   return (
@@ -649,7 +739,6 @@ export default function SettingsPage() {
 
       <div style={{ maxWidth: 960, margin: "0 auto", padding: "32px 16px" }}>
 
-        {/* Page title */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 20, fontWeight: 600, color: "#1e293b" }}>Settings</div>
           <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>Manage your hospital, staff accounts, and personal preferences.</div>
@@ -657,7 +746,7 @@ export default function SettingsPage() {
 
         <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 24, alignItems: "start" }}>
 
-          {/* Sidebar tab navigation */}
+          {/* Sidebar */}
           <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e2e8f0", overflow: "hidden", padding: "6px" }}>
             {TABS.map(tab => {
               const isActive = tab.id === activeTab;
@@ -671,8 +760,7 @@ export default function SettingsPage() {
                     borderRadius: 8, border: "none",
                     background: isActive ? "#f0f0ff" : "transparent",
                     color: isActive ? "#4f46e5" : "#475569",
-                    display: "block",
-                    transition: "all 0.15s",
+                    display: "block", transition: "all 0.15s",
                   }}
                   onMouseEnter={e => { if (!isActive) e.target.style.background = "#f8fafc"; }}
                   onMouseLeave={e => { if (!isActive) e.target.style.background = "transparent"; }}
@@ -683,9 +771,12 @@ export default function SettingsPage() {
             })}
           </div>
 
-          {/* Main content panel */}
+          {/* Content panel — pass currentUser only to StaffTab */}
           <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e2e8f0", padding: "24px 28px" }}>
-            <ActiveComponent />
+            {activeTab === "staff"
+              ? <StaffTab currentUser={currentUser} />
+              : <ActiveComponent />
+            }
           </div>
 
         </div>
