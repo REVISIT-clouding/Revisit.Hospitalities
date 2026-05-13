@@ -6,6 +6,8 @@ import {
   Loader2,
   ShieldCheck,
 } from "lucide-react";
+import InsuranceBadge, { getProviderPalette } from "@/app/components/insurance/InsuranceBadge";
+
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function calcAge(dob) {
@@ -28,6 +30,7 @@ export default function PatientTable({
   patients,
   loading,
   onSelectPatient,
+  providers = [],
 }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -50,6 +53,9 @@ export default function PatientTable({
     (safePage - 1) * PER_PAGE,
     safePage * PER_PAGE
   );
+
+  // O(1) provider lookup
+  const providerMap = Object.fromEntries(providers.map((p) => [p.id, p]));
 
   return (
     <div className="space-y-3">
@@ -91,7 +97,7 @@ export default function PatientTable({
                   Blood
                 </th>
                 <th className="hidden lg:table-cell px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">
-                  Insurance
+                  Payer
                 </th>
                 <th className="hidden md:table-cell px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">
                   Phone
@@ -128,88 +134,125 @@ export default function PatientTable({
                   </td>
                 </tr>
               ) : (
-                paginated.map((p) => (
-                  <tr
-                    key={p.id}
-                    onClick={() => onSelectPatient(p)}
-                    className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center text-[11px] font-black text-teal-700 shrink-0">
-                          {(p.full_name || "?")
-                            .split(" ")
-                            .slice(0, 2)
-                            .map((w) => w[0])
-                            .join("")
-                            .toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800 group-hover:text-slate-900 leading-tight">
-                            {p.full_name}
-                          </p>
-                          <p className="text-[10px] font-black text-teal-500 font-mono sm:hidden mt-0.5">
-                            {p.patient_id || "—"}
-                          </p>
-                          {p.nhia_number && (
-                            <p className="text-[9px] font-bold text-emerald-600 flex items-center gap-0.5 mt-0.5">
-                              <ShieldCheck size={9} /> NHIA
+                paginated.map((p) => {
+                  // Resolve provider object (or null for self-pay)
+                  const provider = p.insurance_provider_id
+                    ? providerMap[p.insurance_provider_id] ?? null
+                    : null;
+
+                  // Left-border stripe — matches badge color per provider
+                  const palette = provider ? getProviderPalette(provider.id) : null;
+                  const stripeCls = palette
+                    ? `border-l-4 ${palette.border}`
+                    : "border-l-4 border-l-transparent";
+
+                  return (
+                    <tr
+                      key={p.id}
+                      onClick={() => onSelectPatient(p)}
+                      className={`border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors group ${stripeCls}`}
+                    >
+                      {/* ── Patient name + avatar ── */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center text-[11px] font-black text-teal-700 shrink-0">
+                            {(p.full_name || "?")
+                              .split(" ")
+                              .slice(0, 2)
+                              .map((w) => w[0])
+                              .join("")
+                              .toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800 group-hover:text-slate-900 leading-tight">
+                              {p.full_name}
                             </p>
-                          )}
+                            <p className="text-[10px] font-black text-teal-500 font-mono sm:hidden mt-0.5">
+                              {p.patient_id || "—"}
+                            </p>
+                            {/* Mobile: show badge inline under name */}
+                            {provider && (
+                              <span className="lg:hidden mt-0.5 inline-block">
+                                <InsuranceBadge provider={provider} />
+                              </span>
+                            )}
+                            {p.nhia_number && (
+                              <p className="text-[9px] font-bold text-emerald-600 flex items-center gap-0.5 mt-0.5">
+                                <ShieldCheck size={9} /> NHIA
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="hidden sm:table-cell px-4 py-3">
-                      <span className="text-[11px] font-black text-teal-600 font-mono">
-                        {p.patient_id || "—"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div>
-                        <span className="text-sm text-slate-500">
-                          {p.date_of_birth
-                            ? `${calcAge(p.date_of_birth)}y`
-                            : "—"}
+                      </td>
+
+                      {/* ── Patient ID ── */}
+                      <td className="hidden sm:table-cell px-4 py-3">
+                        <span className="text-[11px] font-black text-teal-600 font-mono">
+                          {p.patient_id || "—"}
                         </span>
-                        <p className="text-[10px] text-slate-400 md:hidden mt-0.5">
-                          {p.phone || ""}
-                        </p>
-                      </div>
-                    </td>
-                    <td className="hidden sm:table-cell px-4 py-3">
-                      {p.blood_group ? (
-                        <span className="text-xs font-black px-2 py-0.5 rounded bg-red-50 border border-red-200 text-red-600">
-                          {p.blood_group}
-                        </span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="hidden lg:table-cell px-4 py-3">
-                      <span className="text-xs text-slate-500">
-                        {p.insurance_provider || (
+                      </td>
+
+                      {/* ── Age + phone (mobile) ── */}
+                      <td className="px-4 py-3">
+                        <div>
+                          <span className="text-sm text-slate-500">
+                            {p.date_of_birth
+                              ? `${calcAge(p.date_of_birth)}y`
+                              : "—"}
+                          </span>
+                          <p className="text-[10px] text-slate-400 md:hidden mt-0.5">
+                            {p.phone || ""}
+                          </p>
+                        </div>
+                      </td>
+
+                      {/* ── Blood group ── */}
+                      <td className="hidden sm:table-cell px-4 py-3">
+                        {p.blood_group ? (
+                          <span className="text-xs font-black px-2 py-0.5 rounded bg-red-50 border border-red-200 text-red-600">
+                            {p.blood_group}
+                          </span>
+                        ) : (
                           <span className="text-slate-300">—</span>
                         )}
-                      </span>
-                    </td>
-                    <td className="hidden md:table-cell px-4 py-3">
-                      <span className="text-sm text-slate-500">
-                        {p.phone || <span className="text-slate-300">—</span>}
-                      </span>
-                    </td>
-                    <td className="hidden lg:table-cell px-4 py-3">
-                      <span className="text-xs text-slate-400">
-                        {timeAgo(p.created_at)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <ChevronRight
-                        size={13}
-                        className="text-slate-300 group-hover:text-teal-500 transition inline-block"
-                      />
-                    </td>
-                  </tr>
-                ))
+                      </td>
+
+                      {/* ── Payer badge (desktop) ── */}
+                      <td className="hidden lg:table-cell px-4 py-3">
+                        <div className="flex flex-col gap-0.5">
+                          <InsuranceBadge provider={provider} />
+                          {p.coverage_type && (
+                            <span className="text-[9px] text-slate-400 font-medium">
+                              {p.coverage_type}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* ── Phone ── */}
+                      <td className="hidden md:table-cell px-4 py-3">
+                        <span className="text-sm text-slate-500">
+                          {p.phone || <span className="text-slate-300">—</span>}
+                        </span>
+                      </td>
+
+                      {/* ── Registered ── */}
+                      <td className="hidden lg:table-cell px-4 py-3">
+                        <span className="text-xs text-slate-400">
+                          {timeAgo(p.created_at)}
+                        </span>
+                      </td>
+
+                      {/* ── Chevron ── */}
+                      <td className="px-4 py-3 text-right">
+                        <ChevronRight
+                          size={13}
+                          className="text-slate-300 group-hover:text-teal-500 transition inline-block"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -233,17 +276,17 @@ export default function PatientTable({
               >
                 ‹
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
                 <button
-                  key={p}
-                  onClick={() => setPage(p)}
+                  key={n}
+                  onClick={() => setPage(n)}
                   className={`w-7 h-7 rounded-lg text-xs font-bold transition ${
-                    safePage === p
+                    safePage === n
                       ? "bg-teal-600 text-white"
                       : "text-slate-400 hover:bg-slate-100"
                   }`}
                 >
-                  {p}
+                  {n}
                 </button>
               ))}
               <button

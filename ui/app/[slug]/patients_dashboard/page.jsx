@@ -16,6 +16,7 @@ import VisitModal, { EMPTY_VISIT } from "@/app/components/patients/VisitModal";
 import FullHistoryModal from "@/app/components/patients/FullHistoryModal";
 import ExportModal from "@/app/components/patients/ExportModal";
 
+
 const DEPARTMENTS = [
   "General Medicine", "Maternity", "Paediatrics", "Surgery", "Laboratory",
   "Pharmacy", "Physiotherapy", "Emergency", "Dental", "Eye Clinic",
